@@ -47,35 +47,45 @@ func dirTree(out io.Writer, path string, printFiles bool) error {
 }
 
 func showTree(out io.Writer, path string, printFiles bool, tail string) error {
-	files := getListDirAndFiles(path)
+	files := getListDirAndFiles(path, printFiles)
 
 	countFiles := len(files)
 
 	for indexFile := 0; indexFile < countFiles; indexFile++ {
 		file := files[indexFile]
 
-		if isExceptionName(file.Name()) {
-			continue
-		}
-
 		isEndLoop := checkEndLoop(indexFile, countFiles)
 
 		if file.IsDir() {
-			printDirName(file, tail, isEndLoop)
+			printDirName(out, file, tail, isEndLoop)
 			showTree(out, path+"/"+file.Name(), printFiles, tail+getTailByIsLast(isEndLoop))
-		} else if printFiles {
-			printFileName(file, tail, isEndLoop)
+		} else {
+			printFileName(out, file, tail, isEndLoop)
 		}
 	}
 
 	return nil
 }
 
-func getListDirAndFiles(path string) []fs.FileInfo {
-	files, err := ioutil.ReadDir(path)
+func getListDirAndFiles(path string, printFiles bool) []fs.FileInfo {
+	dirtyFiles, err := ioutil.ReadDir(path)
 
 	if err != nil {
 		panic(err)
+	}
+
+	var files []fs.FileInfo
+
+	for _, file := range dirtyFiles {
+		if isExceptionName(file.Name()) {
+			continue
+		}
+
+		if false == printFiles && false == file.IsDir() {
+			continue
+		}
+
+		files = append(files, file)
 	}
 
 	sort.Slice(files, func(currentIndex, nextIndex int) bool {
@@ -99,20 +109,20 @@ func checkEndLoop(indexFile int, countFiles int) bool {
 	return indexFile >= countFiles-1
 }
 
-func printDirName(file fs.FileInfo, tail string, isLast bool) {
-	fmt.Printf("%s%s%s\n", tail, getHeadByIsLast(isLast), file.Name())
+func printDirName(out io.Writer, file fs.FileInfo, tail string, isLast bool) {
+	fmt.Fprintf(out, "%s%s%s\n", tail, getHeadByIsLast(isLast), file.Name())
 
 	return
 }
 
-func printFileName(file fs.FileInfo, tail string, isLast bool) {
+func printFileName(out io.Writer, file fs.FileInfo, tail string, isLast bool) {
 	fileSize := defaultFileSize
 
 	if 0 < file.Size() {
 		fileSize = fmt.Sprintf("%vb", file.Size())
 	}
 
-	fmt.Printf("%s%s%s (%s)\n", tail, getHeadByIsLast(isLast), file.Name(), fileSize)
+	fmt.Fprintf(out, "%s%s%s (%s)\n", tail, getHeadByIsLast(isLast), file.Name(), fileSize)
 
 	return
 }
