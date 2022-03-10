@@ -9,7 +9,7 @@ import (
 	"sort"
 )
 
-var excludeNames = [1]string{".DS_Store"}
+var excludeFileNames = [1]string{".DS_Store"}
 
 const (
 	headForEnd      = "└───"
@@ -77,7 +77,7 @@ func getListDirAndFiles(path string, printFiles bool) []fs.FileInfo {
 	var files []fs.FileInfo
 
 	for _, file := range dirtyFiles {
-		if isExceptionName(file.Name()) {
+		if isExcludeFile(file.Name()) {
 			continue
 		}
 
@@ -95,8 +95,8 @@ func getListDirAndFiles(path string, printFiles bool) []fs.FileInfo {
 	return files
 }
 
-func isExceptionName(fileName string) bool {
-	for _, val := range excludeNames {
+func isExcludeFile(fileName string) bool {
+	for _, val := range excludeFileNames {
 		if val == fileName {
 			return true
 		}
