@@ -7,11 +7,13 @@ import (
 )
 
 func ExecutePipeline(dataInput ...string) {
-	var results [...]string
+	var results []string
 
 	for index, data := range dataInput {
 		singleHash := SingleHash(index, data)
-		results[index] = MultiHash(singleHash)
+		result := MultiHash(singleHash)
+
+		results = append(results, result)
 
 		fmt.Println("")
 	}
@@ -59,5 +61,9 @@ func MultiHash(data string) string {
 }
 
 func CombineResults(data []string) string {
-	return strings.Join(data[:], "_")
+	combineResults := strings.Join(data[:], "_")
+
+	fmt.Printf("CombineResults %s\n", combineResults)
+
+	return combineResults
 }
