@@ -2,9 +2,14 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 )
+
+func main() {
+	ExecutePipeline("0", "1")
+}
 
 func ExecutePipeline(dataInput ...string) {
 	var results []string
@@ -19,10 +24,6 @@ func ExecutePipeline(dataInput ...string) {
 	}
 
 	CombineResults(results)
-}
-
-func main() {
-	ExecutePipeline("0", "1")
 }
 
 func SingleHash(index int, data string) string {
@@ -44,9 +45,10 @@ func SingleHash(index int, data string) string {
 }
 
 func MultiHash(data string) string {
-	var results [6]string
+	ths := [6]int{0, 1, 2, 3, 4, 5}
+	var results [len(ths)]string
 
-	for index, th := range []int{0, 1, 2, 3, 4, 5} {
+	for index, th := range ths {
 		th := strconv.Itoa(th)
 		results[index] = DataSignerCrc32(th + data)
 
@@ -61,6 +63,7 @@ func MultiHash(data string) string {
 }
 
 func CombineResults(data []string) string {
+	sort.Strings(data)
 	combineResults := strings.Join(data[:], "_")
 
 	fmt.Printf("CombineResults %s\n", combineResults)
