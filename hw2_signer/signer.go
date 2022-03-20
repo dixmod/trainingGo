@@ -5,68 +5,154 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 func main() {
-	ExecutePipeline("0", "1")
-}
+	inputData := []int{1, 2}
 
-func ExecutePipeline(dataInput ...string) {
-	var results []string
-
-	for index, data := range dataInput {
-		singleHash := SingleHash(index, data)
-		result := MultiHash(singleHash)
-
-		results = append(results, result)
-
-		fmt.Println("")
+	hashSignJobs := []job{
+		job(func(in, out chan interface{}) {
+			for _, fibNum := range inputData {
+				out <- fibNum
+			}
+		}),
+		job(SingleHash),
+		job(MultiHash),
+		job(CombineResults),
+		job(func(in, out chan interface{}) {
+			_ = <-in
+		}),
 	}
 
-	CombineResults(results)
+	ExecutePipeline(hashSignJobs...)
 }
 
-func SingleHash(index int, data string) string {
-	fmt.Printf("%d SingleHash data %s\n", index, data)
+func ExecutePipeline(jobs ...job) {
+	wg := &sync.WaitGroup{}
+	in := make(chan interface{})
 
-	md5res := DataSignerMd5(data)
-	fmt.Printf("%d SingleHash md5(data) %s\n", index, md5res)
+	for _, job := range jobs {
+		wg.Add(1)
 
-	crc32res := DataSignerCrc32(md5res)
-	fmt.Printf("%d SingleHash crc32(md5(data)) %s\n", index, crc32res)
+		out := make(chan interface{})
+		go WorkerJob(job, in, out, wg)
+		in = out
+	}
 
-	crc32datares := DataSignerCrc32(data)
-	fmt.Printf("%d SingleHash crc32(data) %s\n", index, crc32datares)
+	wg.Wait()
+}
+
+func WorkerJob(job job, in, out chan interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	defer close(out)
+
+	job(in, out)
+}
+
+func SingleHash(in, out chan interface{}) {
+	mu := &sync.Mutex{}
+	wg := &sync.WaitGroup{}
+
+	for i := range in {
+		wg.Add(1)
+
+		go WorkerSingleHash(i, out, wg, mu)
+	}
+
+	wg.Wait()
+}
+
+func WorkerSingleHash(in interface{}, out chan interface{}, wg *sync.WaitGroup, mu *sync.Mutex) {
+	defer wg.Done()
+	buf := make(chan string)
+
+	data := strconv.Itoa(in.(int))
+
+	fmt.Printf("%s SingleHash data %s\n", data, data)
+
+	mu.Lock()
+	go WorkerMd5(data, buf)
+	md5res := <-buf
+	fmt.Printf("%s SingleHash md5(data) %s\n", data, md5res)
+	mu.Unlock()
+
+	go WorkerCrc32(md5res, buf)
+	crc32res := <-buf
+	fmt.Printf("%s SingleHash crc32(md5(data)) %s\n", data, crc32res)
+
+	go WorkerCrc32(data, buf)
+	crc32datares := <-buf
+	fmt.Printf("%s SingleHash crc32(data) %s\n", data, crc32datares)
 
 	result := crc32datares + "~" + crc32res
-	fmt.Printf("%d SingleHash result %s\n", index, result)
+	fmt.Printf("%s SingleHash result %s\n", data, result)
 
-	return result
+	out <- result
 }
 
-func MultiHash(data string) string {
+func WorkerMd5(data string, out chan string) {
+	out <- DataSignerMd5(data)
+}
+
+func WorkerCrc32(data string, out chan string) {
+	out <- DataSignerCrc32(data)
+}
+
+func MultiHash(in, out chan interface{}) {
+	wg := &sync.WaitGroup{}
+
+	for itemData := range in {
+		wg.Add(1)
+
+		go WorkerMultiHash(itemData.(string), out, wg)
+	}
+
+	wg.Wait()
+}
+
+func WorkerMultiHash(data string, out chan interface{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	wgDataSignerCrc32 := &sync.WaitGroup{}
+
 	ths := [6]int{0, 1, 2, 3, 4, 5}
-	var results [len(ths)]string
+	const countThs = len(ths)
+	results := make([]string, countThs)
 
 	for index, th := range ths {
 		th := strconv.Itoa(th)
-		results[index] = DataSignerCrc32(th + data)
 
-		fmt.Printf("%s MultiHash: crc32(th+step1)) %s %s\n", data, th, results[index])
+		wgDataSignerCrc32.Add(1)
+
+		go func(results []string, data string, index int, wgDataSignerCrc32 *sync.WaitGroup) {
+			defer wgDataSignerCrc32.Done()
+
+			results[index] = DataSignerCrc32(th + data)
+			fmt.Printf("%s MultiHash: crc32(th+step1)) %s %s\n", data, th, results[index])
+		}(results, data, index, wgDataSignerCrc32)
 	}
+
+	wgDataSignerCrc32.Wait()
 
 	result := strings.Join(results[:], "")
 
 	fmt.Printf("%s MultiHash result: %s\n", data, result)
 
-	return result
+	out <- result
 }
 
-func CombineResults(data []string) string {
+func CombineResults(in, out chan interface{}) {
+	var data []string
+
+	for i := range in {
+		data = append(data, i.(string))
+	}
+
 	sort.Strings(data)
 	combineResults := strings.Join(data[:], "_")
 
 	fmt.Printf("CombineResults %s\n", combineResults)
 
-	return combineResults
+	out <- combineResults
 }
