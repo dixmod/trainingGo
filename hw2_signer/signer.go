@@ -51,69 +51,59 @@ func WorkerJob(job job, in, out chan interface{}, wg *sync.WaitGroup) {
 }
 
 func SingleHash(in, out chan interface{}) {
-	mu := &sync.Mutex{}
 	wg := &sync.WaitGroup{}
+	md5QueueChanel := make(chan interface{}, 1)
 
-	for i := range in {
-		wg.Add(1)
-
-		go WorkerSingleHash(i, out, wg, mu)
+	for itemData := range in {
+		WorkerSingleHash(itemData, out, wg, md5QueueChanel)
 	}
 
 	wg.Wait()
 }
 
-func WorkerSingleHash(in interface{}, out chan interface{}, wg *sync.WaitGroup, mu *sync.Mutex) {
-	defer wg.Done()
-	buf := make(chan string)
-
+func WorkerSingleHash(in interface{}, out chan interface{}, wg *sync.WaitGroup, md5QueueChanel chan interface{}) {
 	data := strconv.Itoa(in.(int))
+	crc32Md5Chanel := make(chan string, 1)
 
 	fmt.Printf("%s SingleHash data %s\n", data, data)
 
-	mu.Lock()
-	go WorkerMd5(data, buf)
-	md5res := <-buf
-	fmt.Printf("%s SingleHash md5(data) %s\n", data, md5res)
-	mu.Unlock()
+	wg.Add(1)
+	go func(data string, out chan<- string, queueChanel chan interface{}) {
+		defer wg.Done()
+		queueChanel <- data
 
-	go WorkerCrc32(md5res, buf)
-	crc32res := <-buf
-	fmt.Printf("%s SingleHash crc32(md5(data)) %s\n", data, crc32res)
+		md5Res := DataSignerMd5(data)
+		fmt.Printf("%s SingleHash md5(data) %s\n", <-queueChanel, md5Res)
 
-	go WorkerCrc32(data, buf)
-	crc32datares := <-buf
-	fmt.Printf("%s SingleHash crc32(data) %s\n", data, crc32datares)
+		out <- DataSignerCrc32(md5Res)
+	}(data, crc32Md5Chanel, md5QueueChanel)
 
-	result := crc32datares + "~" + crc32res
-	fmt.Printf("%s SingleHash result %s\n", data, result)
+	wg.Add(1)
+	go func(data string, crc32Md5Chanel <-chan string, out chan<- interface{}) {
+		defer wg.Done()
 
-	out <- result
-}
+		crc32DataRes := DataSignerCrc32(data)
+		fmt.Printf("%s SingleHash crc32(data) %s\n", data, crc32DataRes)
 
-func WorkerMd5(data string, out chan string) {
-	out <- DataSignerMd5(data)
-}
+		result := crc32DataRes + "~" + <-crc32Md5Chanel
+		fmt.Printf("%s SingleHash result %s\n", data, result)
 
-func WorkerCrc32(data string, out chan string) {
-	out <- DataSignerCrc32(data)
+		out <- result
+	}(data, crc32Md5Chanel, out)
 }
 
 func MultiHash(in, out chan interface{}) {
 	wg := &sync.WaitGroup{}
 
 	for itemData := range in {
-		wg.Add(1)
-
-		go WorkerMultiHash(itemData.(string), out, wg)
+		WorkerMultiHash(itemData, out, wg)
 	}
 
 	wg.Wait()
 }
 
-func WorkerMultiHash(data string, out chan interface{}, wg *sync.WaitGroup) {
-	defer wg.Done()
-
+func WorkerMultiHash(in interface{}, out chan interface{}, wg *sync.WaitGroup) {
+	data := in.(string)
 	wgDataSignerCrc32 := &sync.WaitGroup{}
 
 	ths := [6]int{0, 1, 2, 3, 4, 5}
@@ -129,17 +119,24 @@ func WorkerMultiHash(data string, out chan interface{}, wg *sync.WaitGroup) {
 			defer wgDataSignerCrc32.Done()
 
 			results[index] = DataSignerCrc32(th + data)
+
 			fmt.Printf("%s MultiHash: crc32(th+step1)) %s %s\n", data, th, results[index])
 		}(results, data, index, wgDataSignerCrc32)
 	}
 
-	wgDataSignerCrc32.Wait()
+	wg.Add(1)
 
-	result := strings.Join(results[:], "")
+	go func(out chan<- interface{}) {
+		defer wg.Done()
 
-	fmt.Printf("%s MultiHash result: %s\n", data, result)
+		wgDataSignerCrc32.Wait()
 
-	out <- result
+		result := strings.Join(results[:], "")
+
+		fmt.Printf("%s MultiHash result: %s\n", data, result)
+
+		out <- result
+	}(out)
 }
 
 func CombineResults(in, out chan interface{}) {
